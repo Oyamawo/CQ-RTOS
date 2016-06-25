@@ -1,0 +1,103 @@
+-- frame2.smv
+-- RTOSナシの場合のフレームワーク-2
+/--
+A+B+C+D<=50msの時のみ使える。
+C1:=20; C2:=10; C3:=16; C4:= 13; これでもok
+C1:=20; C2:=10; C3:=13; C4:= 15;   
+--/
+
+MODULE main
+DEFINE
+C1:=20; C2:=10; C3:=14; C4:= 15;    -- Ciは実行時間
+C1i:= C1 - 1; C2i:= C2 - 1; C3i:= C3 - 1; C4i:= C4 - 1;
+T1:=50; T2:=100;                    -- Tiはタイマー周期
+T1i:= T1 - 1; T2i:= T2 - 1;
+Lax1:= T1 - (C1 + C4); Lax2:= T2 - (C2 + C3); -- 余裕時間 (Slack time, Laxity)
+F1Miss:= f1delay > Lax1;    -- 余裕時間以上に遅延したらデッドラインオーバー
+F2Miss:= f2delay > Lax2;
+MISS:= F1Miss | F2Miss; -- デッドラインオーバー判定
+
+VAR
+t1:0..T1i;    -- ti: 起動点からの経過時間、初期値は起動オフセット, ti = 0で割り込みが入る
+t2:0..T2i;    -- t1,t2がハーモニックならt1のみで良い
+c1:0..C1i;    -- 処理A経過時間
+c2:0..C2i;
+c3:0..C3i; --
+c4:0..C4i; -- C4 - 1まで
+state: {wait, a, b, c, d};    -- CPU状態, 起動時(c=0)に更新
+f1req: boolean;               -- timer1割り込みあり
+f2req: boolean;               -- timer2割り込みあり
+f1delay:0..T1;                -- timer1割り込みからの経過時間
+f2delay:0..T2;                -- timer2割り込みからの経過時間
+
+ASSIGN
+init(t1):= 0..49; -- T1i    -- 非決定性の{}の中でマクロは使えない
+init(t2):= 0..99; -- T2i    -- 起動オフセットは非決定的に初期化 T - 1
+next(t1):= (t1 + 1) mod T1;
+next(t2):= (t2 + 1) mod T2;
+
+init(f1req):= (t1 = 0);
+next(f1req):= case
+    next(t1)=0 : TRUE;
+    state = a : FALSE;
+TRUE : f1req;
+esac;
+init(f1delay):= 0;
+next(f1delay):= case
+    f1req & next(state) != a & f1delay < T1: f1delay + 1;
+TRUE: 0;
+esac;
+
+init(f2req):= (t2 = 0);
+next(f2req):= case
+    next(t2)=0 : TRUE;
+    (state) = b : FALSE;
+TRUE : f2req;
+esac;
+
+init(f2delay):= 0;
+next(f2delay):= case
+    f2req & next(state) != b & f2delay < T2: f2delay + 1;
+TRUE: 0;
+esac;
+
+init(state):= case
+    t1 = 0: a;
+TRUE: wait;
+esac;
+init(c1):= 0;
+init(c2):= 0;
+init(c3):= 0;
+init(c4):= 0;
+next(state):= case
+    next(f1req) & state = wait : a;
+    next(f2req) & state = a & c1 = C1i : b;
+    !next(f2req) & state = a & c1 = C1i : d;
+    state = b & c2 = C2i : c;
+    state in {a,c} & (c3 = C3i|c1 = C1i): d;
+    state = d & c4 = C4i & !f1req: wait;
+    state = d & c4 = C4i & f1req: a;
+TRUE: state;
+esac;
+next(c1):= case
+    (state) = a & c1 < C1i: c1 + 1;
+TRUE: 0;
+esac;
+next(c2):= case
+    (state) = b & c2 < C2i: c2 + 1;
+TRUE: 0;
+esac;
+next(c3):= case
+    (state) = c & c3 < C3i: c3 + 1;
+TRUE: 0;
+esac;
+next(c4):= case
+    (state) = d & c4 < C4i: c4 + 1;
+TRUE: 0;
+esac;
+
+SPEC AG !MISS
+COMPUTE MIN[f1req , state = a]
+COMPUTE MAX[f1req , state = a]
+COMPUTE MIN[f2req , state = b]
+COMPUTE MAX[f2req , state = b]

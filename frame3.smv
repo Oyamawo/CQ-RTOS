@@ -1,0 +1,142 @@
+-- frame3.smv
+-- RTOSナシの場合のフレームワーク-3
+/--
+--/
+
+MODULE main
+DEFINE
+C1:=20; C2:=10; C3:=10; C4:= 29;    -- Ciは実行時間
+C1i:= C1 - 1; C2i:= C2 - 1; C3i:= C3 - 1; C4i:= C4 - 1;
+T1:=50; T2:=100; T3:=100; T4:=50;     -- Tiはタイマー周期
+T1i:= T1 - 1; T2i:= T2 - 1; T3i:= T3 - 1; T4i:= T4 - 1;
+Lax1:= T1 - C1; Lax2:= T2 - C2; -- 余裕時間 (Slack time, Laxity)
+Lax3:= T3 - C3; Lax4:= T4 - C4;
+F1Miss:= f1delay > Lax1;    -- 余裕時間以上に遅延したらデッドラインオーバー
+F2Miss:= f2delay > Lax2;
+F3Miss:= f3delay > Lax3;
+F4Miss:= f4delay > Lax4;
+MISS:= F1Miss | F2Miss | F3Miss | F4Miss; -- デッドラインオーバー判定
+
+VAR
+t1:0..T1i;    -- ti: 起動点からの経過時間、初期値は起動オフセット, ti = 0で割り込みが入る
+t2:0..T2i;    -- t1,t2がハーモニックならt1のみで良い
+t3:0..T3i;
+t4:0..T4i;
+c1:0..C1i;    -- 処理A経過時間
+c2:0..C2i;
+c3:0..C3i; --
+c4:0..C4i; -- C4 - 1まで
+state: {ctrl, a, b, c, d};    -- CPU状態, 起動時(c=0)に更新
+f1req: boolean;               -- timer1割り込みあり
+f2req: boolean;               -- timer2割り込みあり
+f3req: boolean;               -- timer3割り込みあり
+f4req: boolean;               -- timer4割り込みあり
+f1delay:0..Lax1 + 1;                -- timer1割り込みからの経過時間
+f2delay:0..Lax2 + 1;                -- timer2割り込みからの経過時間
+f3delay:0..Lax3 + 1;                -- timer3割り込みからの経過時間
+f4delay:0..Lax4 + 1;                -- timer4割り込みからの経過時間
+
+ASSIGN
+init(t1):= 0..30; --Lax1   -- 非決定性の{}の中でマクロは使えない
+init(t2):= 0; -- ..90; --Lax2    -- 起動オフセットは非決定的に初期化 T - 1
+init(t3):= 0..10; --90; --Lax3    -- 起動オフセットは非決定的に初期化 T - 1
+init(t4):= 0..20; --Lax4    -- 非決定性の{}の中でマクロは使えない
+-- ここの組み合わせだけで486万通りある
+next(t1):= (t1 + 1) mod T1;
+next(t2):= (t2 + 1) mod T2;
+next(t3):= (t3 + 1) mod T3;
+next(t4):= (t4 + 1) mod T4;
+
+init(f1req):= (t1 = 0);
+next(f1req):= case
+    next(t1)=0 : TRUE;
+    state = a & c1 > 0 : FALSE;
+TRUE : f1req;
+esac;
+init(f1delay):= 0;
+next(f1delay):= case
+    f1req & next(state) != a & f1delay < Lax1 + 1: f1delay + 1;
+TRUE: 0;
+esac;
+
+init(f2req):= (t2 = 0);
+next(f2req):= case
+    next(t2)=0 : TRUE;
+    (state) = b & c2 > 0 : FALSE;
+TRUE : f2req;
+esac;
+
+init(f2delay):= 0;
+next(f2delay):= case
+    f2req & next(state) != b & f2delay < Lax2 + 1: f2delay + 1;
+TRUE: 0;
+esac;
+
+init(f3req):= (t3 = 0);
+next(f3req):= case
+    next(t3)=0 : TRUE;
+    (state) = c & c3 = 1 : FALSE;
+TRUE : f3req;
+esac;
+
+init(f3delay):= 0;
+next(f3delay):= case
+    f3req & next(state) != c & f3delay < Lax3 + 1: f3delay + 1;
+TRUE: 0;
+esac;
+
+init(f4req):= (t4 = 0);
+next(f4req):= case
+    next(t4)=0 : TRUE;
+    (state) = d & c4 = 1: FALSE;	-- 
+TRUE : f4req;
+esac;
+
+init(f4delay):= 0;
+next(f4delay):= case
+    f4req & next(state) != d & f4delay < Lax4 + 1: f4delay + 1;
+TRUE: 0;
+esac;
+
+
+init(state):= case
+    t1 = 0: a;
+TRUE: ctrl;
+esac;
+init(c1):= 0;
+init(c2):= 0;
+init(c3):= 0;
+init(c4):= 0;
+next(state):= case
+    next(f1req) & state = ctrl : a;
+    next(f2req) & state = ctrl : b;
+    next(f3req) & state = ctrl : c;
+    next(f4req) & state = ctrl : d;
+	c1 = C1i : ctrl;
+	c2 = C2i : ctrl;
+	c3 = C3i : ctrl;
+	c4 = C4i : ctrl;
+TRUE: state;
+esac;
+next(c1):= case
+    (state) = a & c1 < C1i: c1 + 1;
+TRUE: 0;
+esac;
+next(c2):= case
+    (state) = b & c2 < C2i: c2 + 1;
+TRUE: 0;
+esac;
+next(c3):= case
+    (state) = c & c3 < C3i: c3 + 1;
+TRUE: 0;
+esac;
+next(c4):= case
+    (state) = d & c4 < C4i: c4 + 1;
+TRUE: 0;
+esac;
+
+SPEC AG !MISS
+COMPUTE MAX[f1delay > 0 , f1delay = 0]
+COMPUTE MAX[f2delay > 0 , f2delay = 0]
+COMPUTE MAX[f3delay > 0 , f3delay = 0]
+COMPUTE MAX[f4delay > 0 , f4delay = 0]
