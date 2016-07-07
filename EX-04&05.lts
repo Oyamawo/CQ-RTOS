@@ -1,0 +1,61 @@
+/* RTOS状態マシン */
+ReadyTask = (w -> r -> ReadyTask).
+WaitingTask = (r -> w -> WaitingTask).
+
+const N = 3		// タスク数
+range P = 1..N	// 優先度、大きい方が低い
+
+||Tasks = ({[1..N]}:ReadyTask).	// N次元ハイパーキューブ, 全タスクアクティブスタート
+
+fluent Task[i:P] = <[i].r, [i].w> initially 1		// 全タスクアクティブ
+
+// Task Spec //
+TaskA = (actA -> slpA -> TaskA).
+TaskB04 = (actB -> slpB -> wupA -> TaskB04).
+TaskB05 = (actB -> wupA -> slpB -> TaskB05).
+TaskC = (actC -> wupB -> TaskC).
+SleepA = (slpA -> wupA -> SleepA).
+SleepB = (slpB -> wupB -> SleepB).
+
+// Single Core ??
+assert TaskSTM_A = []((actA || slpA) -> Task[1])
+assert TaskSTM_B = []((actB || slpB || wupA) -> (Task[2] && ! Task[1]))
+assert TaskSTM_C = []((actC || wupB) -> (Task[3] && ! Task[2] && ! Task[1]))
+assert TaskSTM_B_2Core = []((actB || slpB || wupA) -> (Task[2]))
+assert TaskSTM_C_2Core = []((actC || wupB) -> (Task[3] && ! (Task[2] && Task[1])))
+
+constraint TaskSTM_A = TaskSTM_A
+constraint TaskSTM_B = TaskSTM_B
+constraint TaskSTM_C = TaskSTM_C
+constraint TaskSTM_B_2Core = TaskSTM_B_2Core
+constraint TaskSTM_C_2Core = TaskSTM_C_2Core
+||OSTemplate = (TaskSTM_A||TaskSTM_B||TaskSTM_C||Tasks).
+
+OSMapping = Q0,
+	Q0	= ({actA } -> Q0
+		  |slpA -> Q7),
+	Q1	= (
+          {actA} -> Q1
+		  |slpA -> Q5),
+	Q2	= (
+		  {actA} -> Q2
+		  |slpA -> Q3
+		  ),
+	Q3	= STOP,
+	Q4	= (
+		  actC -> Q4
+		  |wupB -> Q7),
+	Q5	= (wupA -> Q1
+		  |slpB -> Q3
+		  |{actB} -> Q5
+		  ),
+	Q6	= (
+		  slpA -> Q4
+		  |{actA} -> Q6),
+	Q7	= (wupA -> Q0
+		  |slpB -> Q4
+		  |{actB } -> Q7).
+
+||EX05Behavior = (OSMapping||TaskA||TaskB05||TaskC||SleepA||SleepB).
+||EX04Behavior = (OSMapping||TaskA||TaskB04||TaskC||SleepA||SleepB).
+
