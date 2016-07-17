@@ -1,0 +1,166 @@
+-- p31-example.smv
+/-- 
+RTOS使用の場合の最悪応答時間: 優先順位はA, B, C, Dの順とする
+単純に計算すると: タスクA=20ms, タスクB=30ms, タスクC=40ms, タスクD=70ms
+ただし、起動周期が全てのタスクで70ms以上の場合
+Ex. タスクAは待ち無しで実行可能、タスクCはA,Bと同時起動の場合A,Bの終了待ちになる
+--
+実行時間38分(LATITUDE E7450)
+
+--/
+
+MODULE BaseTask(c, t, C, Ti, D, waiting, gp)
+
+DEFINE
+rq := c < C & !waiting;         -- CPU要求中
+lv := rq & t < Ti;              -- CPU要求中 & 次のJobはまだ起動されない
+lv_rls := c = C - 1 & t = Ti;   -- CPU要求中 & 次のJobが次に起動される
+slp := c = C & t < Ti;          -- 終了 & 次のJobはまだ起動されない
+slp_rls := c = C & t = Ti;      -- 終了 & 次のJobが次に起動される
+miss := C != c & D - t < C - c; -- デッドラインオーバー
+
+ASSIGN
+init(c):= C;
+next(c):= case
+lv & gp : c + 1;          -- 実行中
+lv_rls & gp | slp_rls: 0; -- 起動 
+slp | !gp : c;            -- 停止
+TRUE : 0;                 -- 起動
+esac;
+
+
+-----------------------------------------------------------
+MODULE main
+DEFINE
+C1:=20; C2:=10; C3:=10; C4:= 30;	-- Ciは実行時間
+--C1:=20; C2:=10; C3:=11; C4:= 30;	-- Ciは実行時間; デッドラインオーパ
+--D1:=70; D2:=70; D3:=70; D4:= 70;	-- Diはデッドライン=起動周期
+--T1:=70; T2:=70; T3:=70; T4:= 70;	-- Tiは起動周期
+D1:=42; D2:=129; D3:=156; D4:= 271;	-- Diはデッドライン=起動周期
+T1:=42; T2:=129; T3:=156; T4:= 271;	-- Tiは起動周期
+PN:=1; 						-- プロセッサ数
+T1i := T1 - 1;
+T2i := T2 - 1;
+T3i := T3 - 1;
+T4i := T4 - 1;
+
+MISS:= Tk1.miss|Tk2.miss|Tk3.miss|Tk4.miss;
+
+VAR
+c1:0..C1;
+c2:0..C2;
+c3:0..C3;
+c4:0..C4;
+t1:0..T1i;	-- ti: 起動点からの経過時間、初期値は起動オフセット
+t2:0..T2i;
+t3:0..T3i;
+t4:0..T4i;
+
+Tk1 : BaseTask(c1, t1, C1, T1i, D1, FALSE, T1_gp);
+Tk2 : BaseTask(c2, t2, C2, T2i, D2, FALSE, T2_gp);
+Tk3 : BaseTask(c3, t3, C3, T3i, D3, FALSE, T3_gp);
+Tk4 : BaseTask(c4, t4, C4, T4i, D4, FALSE, T4_gp);
+
+DEFINE
+
+T1_gp := Tk1.rq;
+T2_gp := Tk2.rq & (toint(Tk1.rq) < PN);
+T3_gp := Tk3.rq & ((toint(Tk1.rq) + toint(Tk2.rq)) < PN);
+T4_gp := Tk4.rq & (toint(Tk1.rq) + toint(Tk2.rq) + toint(Tk3.rq) < PN);
+
+ASSIGN
+init(t1):=0..41; 	-- 非決定性の{}の中でマクロは使えない
+init(t2):=0..128;	-- 起動オフセットは非決定的に初期化 T - 1
+init(t3):=0..155;
+init(t4):=0..270;
+next(t1):= (t1 + 1) mod T1;
+next(t2):= (t2 + 1) mod T2;
+next(t3):= (t3 + 1) mod T3;
+next(t4):= (t4 + 1) mod T4;
+
+-----------------------------------------------------------
+
+SPEC AG !MISS
+COMPUTE MIN[t1=0 & c1=0,c1=C1 - 1 & T1_gp]
+COMPUTE MAX[t1=0 & c1=0,c1=C1 - 1 & T1_gp]
+--
+COMPUTE MIN[t2=0 & c2=0,c2=C2 - 1 & T2_gp]
+COMPUTE MAX[t2=0 & c2=0,c2=C2 - 1 & T2_gp]
+--
+COMPUTE MIN[t3=0 & c3=0,c3=C3 - 1 & T3_gp]
+COMPUTE MAX[t3=0 & c3=0,c3=C3 - 1 & T3_gp]
+--
+COMPUTE MIN[t4=0 & c4=0,c4=C4 - 1 & T4_gp]
+COMPUTE MAX[t4=0 & c4=0,c4=C4 - 1 & T4_gp]
+
+--SPEC AG ! Tk1.slp_rls
+
+--SPEC AG((0 < c1) & (c1 < C1) -> task1.output != none)
+--SPEC AG((0 < c2) & (c2 < C2) -> task2.output != none) -- c2 = C2 - 1でnoneになる
+--COMPUTE MIN[res.lock1, !res.lock1]
+--COMPUTE MAX[res.lock1, !res.lock1]
+--COMPUTE MIN[res.lock2, !res.lock2]
+--COMPUTE MAX[res.lock2, !res.lock2]
+-- SPEC AG((t=LEN) -> (task1.output = none)&(task2.output = none) )
+
+--SPEC EF(task1.output = code1)
+--SPEC EF(task1.output = code2 )
+--SPEC EF(task1.output = wait )
+--SPEC EF(task1.output = none )
+--
+--SPEC AG((task1.output = none) -> AX (task1.output in {code1,none}))
+--SPEC AG((task1.output = code1) -> AX (task1.output in {code1,code2,wait}))
+--SPEC AG((task1.output = code2) -> AX (task1.output in {code2, none}))
+--SPEC AG((task1.output = wait) -> AX (task1.output in {code2, wait}))
+
+--COMPUTE MIN[c1 = 0, c1 = C1]
+--COMPUTE MAX[c1 = 0, c1 = C1]
+
+--COMPUTE MIN[c1 = 0, task1.output= code1]
+--COMPUTE MAX[c1 = 0, task1.output= code1]
+--COMPUTE MIN[task1.output = code1, task1.output= code2]
+--COMPUTE MAX[task1.output = code1, task1.output= code2]
+--COMPUTE MIN[task1.output = code2, c1 = C1]
+--COMPUTE MAX[task1.output = code2, c1 = C1]
+
+--COMPUTE MIN[task1.output = wait, task1.output != wait]
+--COMPUTE MAX[task1.output = wait, task1.output != wait]
+--COMPUTE MIN[task1.output = none, task1.output != none]
+--COMPUTE MAX[task1.output = none, task1.output != none]
+--COMPUTE MIN[task1.output = code1, task1.output != code1]
+--COMPUTE MAX[task1.output = code1, task1.output != code1]
+--COMPUTE MIN[task1.output = code2, task1.output != code2]
+--COMPUTE MAX[task1.output = code2, task1.output != code2]
+
+--SPEC EF(task2.output = code1)
+--SPEC EF(task2.output = code2 )
+----SPEC EF(task2.output = wait )
+--SPEC EF(task2.output = none )
+
+--SPEC AG((task2.output = none) -> AX (task2.output in {code1,none}))
+--SPEC AG((task2.output = code1) -> AX (task2.output in {code1,code2,wait}))
+--SPEC AG((task2.output = code2) -> AX (task2.output in {code2, none}))
+--SPEC AG((task2.output = wait) -> AX (task2.output in {code2, wait}))
+
+--COMPUTE MIN[c2 = 0, c2 = C2]
+--COMPUTE MAX[c2 = 0, c2 = C2]
+
+--COMPUTE MIN[c2 = 0, task2.output= code1]
+--COMPUTE MAX[c2 = 0, task2.output= code1]
+--COMPUTE MIN[task2.output = code1, task2.output= code2]
+--COMPUTE MAX[task2.output = code1, task2.output= code2]
+--COMPUTE MIN[task2.output = code2, c2 = C2]
+--COMPUTE MAX[task2.output = code2, c2 = C2]
+
+--COMPUTE MIN[task2.output = wait, task2.output != wait]
+--COMPUTE MAX[task2.output = wait, task2.output != wait]
+--COMPUTE MIN[task2.output = none, task2.output != none]
+--COMPUTE MAX[task2.output = none, task2.output != none]
+--COMPUTE MIN[task2.output = code1, task2.output != code1]
+--COMPUTE MAX[task2.output = code1, task2.output != code1]
+--COMPUTE MIN[task2.output = code2, task2.output != code2]
+--COMPUTE MAX[task2.output = code2, task2.output != code2]
+
+--COMPUTE MIN[c3 = 0, c3 = C3]
+--COMPUTE MAX[c3 = 0, c3 = C3]
+
